@@ -1,85 +1,162 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- Referencias a Elementos (pueden ser null dependiendo de la página) ---
     const registerForm = document.getElementById('registerForm');
     const loginForm = document.getElementById('loginForm');
     const logoutButton = document.getElementById('logoutButton');
-    const messageDiv = document.getElementById('message');
+    const messageDiv = document.getElementById('message'); // Para mensajes en index.html
+    const welcomeElement = document.getElementById('welcomeMessage'); // Para mensaje en dashboard.html
 
+    // --- Función para mostrar mensajes (principalmente en index.html) ---
     const showMessage = (text, type) => {
         if (messageDiv) {
             messageDiv.textContent = text;
-            messageDiv.className = type; // 'success' or 'error'
+            // Asigna clases para estilizar (ej. 'message success' o 'message error')
+            // Asegúrate de tener una clase base 'message' si quieres estilos comunes.
+            messageDiv.className = `message ${type}`;
+        } else {
+            // Si messageDiv no existe (ej. en dashboard), muestra en consola
+            console.log(`Mensaje (${type}):`, text);
         }
     };
 
-    // --- Lógica de Registro ---
+    // --- Lógica de Registro (CON FETCH CORREGIDO) ---
     if (registerForm) {
         registerForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            // Obtener username en lugar de email
+            e.preventDefault(); // Evita el envío tradicional del formulario
             const username = document.getElementById('registerUsername').value;
             const password = document.getElementById('registerPassword').value;
-            showMessage('Registrando...', 'info');
+
+            // Validaciones básicas (opcional pero recomendado)
+            if (!username || !password) {
+                showMessage('Nombre de usuario y contraseña son requeridos.', 'error');
+                return;
+            }
+
+            showMessage('Registrando...', 'info'); // Mensaje provisional
 
             try {
                 const response = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    // Enviar username en lugar de email
-                    body: JSON.stringify({ username, password })
+                    method: 'POST', // <- ¡ESENCIAL!
+                    headers: {      // <- ¡ESENCIAL!
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password }) // <- ¡ESENCIAL!
                 });
-                const data = await response.json();
 
-                if (data.success) {
-                    showMessage('¡Registro exitoso! Ahora puedes iniciar sesión.', 'success');
-                    registerForm.reset();
-                } else {
-                    showMessage(`Error: ${data.message}`, 'error');
+                // Intenta parsear la respuesta como JSON SIEMPRE,
+                // incluso si hay error, para obtener el mensaje del servidor si lo envía.
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    // Si falla el parseo de JSON (ej. respuesta HTML de error 500)
+                    console.error("Error al parsear JSON de respuesta:", jsonError);
+                    // Usa el texto de la respuesta si está disponible, o un mensaje genérico
+                    const responseText = await response.text(); // Intenta obtener texto plano
+                    data.message = responseText || `Error HTTP ${response.status}`;
                 }
-            } catch (error) {
-                console.error('Error en registro:', error);
-                showMessage('Error de conexión al registrar.', 'error');
+
+
+                if (response.ok) { // Estado HTTP 200-299
+                    // El servidor respondió OK, ahora verificamos el 'success' interno
+                    if (data.success) {
+                         showMessage('¡Registro exitoso! Ahora puedes iniciar sesión.', 'success');
+                         registerForm.reset(); // Limpia el formulario
+                    } else {
+                         // El servidor respondió OK pero indicó un fallo (ej: usuario ya existe)
+                         showMessage(`Error: ${data.message || 'Error desconocido en registro.'}`, 'error');
+                    }
+                } else {
+                    // El servidor respondió con un error HTTP (4xx, 5xx)
+                     showMessage(`Error: ${data.message || `Error del servidor (${response.status})`}`, 'error');
+                }
+
+            } catch (networkError) {
+                // Error de red (no se pudo conectar, etc.)
+                console.error('Error de red en registro:', networkError);
+                showMessage('Error de conexión al registrar. Intenta de nuevo.', 'error');
             }
         });
     }
 
-    // --- Lógica de Login ---
+    // --- Lógica de Login (CON sessionStorage) ---
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            // Obtener username en lugar de email
             const username = document.getElementById('loginUsername').value;
             const password = document.getElementById('loginPassword').value;
+
+            if (!username || !password) {
+                showMessage('Nombre de usuario y contraseña son requeridos.', 'error');
+                return;
+            }
+
             showMessage('Iniciando sesión...', 'info');
 
             try {
                 const response = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    // Enviar username en lugar de email
                     body: JSON.stringify({ username, password })
                 });
-                const data = await response.json();
 
-                if (data.success) {
+                let data = {};
+                 try {
+                    data = await response.json();
+                } catch (jsonError) {
+                    console.error("Error al parsear JSON de respuesta (login):", jsonError);
+                    const responseText = await response.text();
+                    data.message = responseText || `Error HTTP ${response.status}`;
+                }
+
+
+                if (response.ok && data.success) {
+                    // Guarda el username en sessionStorage ANTES de redirigir
+                    sessionStorage.setItem('loggedInUser', username);
+
                     showMessage('Inicio de sesión correcto. Redirigiendo...', 'success');
                     setTimeout(() => {
-                        window.location.href = '/dashboard.html';
-                    }, 1000);
+                        window.location.href = '/dashboard.html'; // Redirige al dashboard
+                    }, 1000); // Pequeña pausa para ver el mensaje
                 } else {
-                    showMessage(`Error: ${data.message}`, 'error');
+                    // Login fallido (usuario/pass incorrecto - 401) u otro error
+                    showMessage(`Error: ${data.message || `Credenciales incorrectas o error del servidor (${response.status})`}`, 'error');
                 }
-            } catch (error) {
-                console.error('Error en login:', error);
-                showMessage('Error de conexión al iniciar sesión.', 'error');
+            } catch (networkError) {
+                console.error('Error de red en login:', networkError);
+                showMessage('Error de conexión al iniciar sesión. Intenta de nuevo.', 'error');
             }
         });
     }
 
-    // --- Lógica de Logout (Sin cambios) ---
+    // --- Lógica de Dashboard (Leer de sessionStorage) ---
+    if (welcomeElement) { // Este código solo se ejecuta si estamos en dashboard.html
+        const loggedInUsername = sessionStorage.getItem('loggedInUser');
+
+        if (loggedInUsername) {
+            // Si encontramos un usuario en sessionStorage, mostramos el saludo
+            welcomeElement.textContent = `Bienvenido, ${loggedInUsername}!`;
+        } else {
+            // Si no hay usuario (ej: acceso directo a dashboard.html), mostramos genérico
+            // En una app real, aquí deberíamos redirigir a la página de login
+            welcomeElement.textContent = 'Bienvenido!';
+            console.warn("No se encontró usuario en sessionStorage. Acceso no autenticado.");
+            // Opcional: Redirigir forzosamente a login si no hay sesión
+            // alert("Debes iniciar sesión para acceder a esta página.");
+            // window.location.href = '/';
+        }
+    }
+
+    // --- Lógica de Logout (Limpiar sessionStorage) ---
     if (logoutButton) {
         logoutButton.addEventListener('click', () => {
-            alert('Cerrando sesión...');
-            window.location.href = '/';
+            // Limpia el nombre de usuario de sessionStorage
+            sessionStorage.removeItem('loggedInUser');
+
+            // (Opcional) Podrías hacer una llamada a una API de /api/logout en el backend si tuvieras sesiones del lado del servidor
+
+            alert('Cerrando sesión...'); // Notificación simple
+            window.location.href = '/'; // Redirige a la página principal (index.html)
         });
     }
 });
